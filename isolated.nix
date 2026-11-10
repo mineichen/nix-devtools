@@ -64,6 +64,9 @@
   inputs ? { },
   # Shell commands run in the sandbox before the interactive shell starts
   shellHook ? "",
+  # More writable host directories, relative to the workspace (e.g. [ "../other-repo" ]),
+  # mounted at their host path. Missing ones are skipped.
+  extraMounts ? [ ],
   # Additional arguments for bwrap, e.g. [ "--ro-bind" "/etc/gitconfig" "/etc/gitconfig" ]
   bwrapArgs ? [ ],
   # Nix inside the sandbox, null to leave it out
@@ -211,6 +214,14 @@ pkgs.writeShellScriptBin name ''
     *) workdir="$workspace" ;;
   esac
 
+  extra=()
+  for rel in ${lib.escapeShellArgs extraMounts}; do
+    dir="$(realpath -m "$workspace/$rel")"
+    if [ -d "$dir" ]; then
+      extra+=(--bind "$dir" "$dir")
+    fi
+  done
+
   if ! error="$(${bwrap} --unshare-all --share-net --ro-bind / / true 2>&1)"; then
     echo "error: bubblewrap doesn't work: $error" >&2
     if [ "$(cat /proc/sys/kernel/apparmor_restrict_unprivileged_userns 2> /dev/null)" = 1 ]; then
@@ -282,6 +293,7 @@ pkgs.writeShellScriptBin name ''
     --ro-bind-data 4 /etc/group 4< <(printf 'user:x:%s:\n' "$(id -g)") \
     --dir ${home} \
     --bind "$workspace" "$workspace" \
+    "''${extra[@]}" \
     --chdir "$workdir" \
     --clearenv \
     ${lib.concatStringsSep " " (lib.mapAttrsToList
